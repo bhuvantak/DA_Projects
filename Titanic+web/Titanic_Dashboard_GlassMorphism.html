@@ -1,0 +1,188 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Titanic Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-2.26.2.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(145deg, #d4f1f9, #eaf7fc);
+            font-family: Arial, sans-serif;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        h1 {
+            color: #02475e;
+            text-shadow: 1px 1px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        input[type="file"] {
+            margin: 20px 0;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.4);
+            color: #02475e;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #dashboard {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 20px;
+            width: 100%;
+            padding: 20px;
+        }
+
+        #dashboard > div {
+            width: 40%;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 15px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <h1>Titanic Interactive Dashboard</h1>
+    <input type="file" id="fileInput" accept="application/json" />
+    <div id="dashboard">
+        <div id="survivalByClass"></div>
+        <div id="ageDistribution"></div>
+        <div id="survivalByGender"></div>
+        <div id="embarkationSurvival"></div>
+        <div id="fareDistribution"></div>
+    </div>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', handleFile);
+
+        function handleFile(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const data = JSON.parse(e.target.result);
+                    createDashboard(data);
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        function createDashboard(data) {
+            // Extract key data
+            const survivalData = data.map(d => d.survived);
+            const classData = data.map(d => d.pclass);
+            const genderData = data.map(d => d.sex);
+            const ageData = data.map(d => d.age).filter(a => a !== null);
+            const embarkData = data.map(d => d.embark_town);
+            const fareData = data.map(d => d.fare);
+            const survivalByGender = survivalData.map((s, i) => ({ survived: s, gender: genderData[i] }));
+            const survivalByClass = survivalData.map((s, i) => ({ survived: s, pclass: classData[i] }));
+            const survivalByEmbark = survivalData.map((s, i) => ({ survived: s, embark: embarkData[i] }));
+
+            // 1. Survival Rate by Passenger Class
+            const classGroups = groupBy(survivalByClass, 'pclass');
+            const survivalByClassData = Object.keys(classGroups).map(c => {
+                const total = classGroups[c].length;
+                const survived = classGroups[c].filter(d => d.survived === 1).length;
+                return { pclass: c, survivalRate: (survived / total) * 100 };
+            });
+            Plotly.newPlot('survivalByClass', [{
+                x: survivalByClassData.map(d => `Class ${d.pclass}`),
+                y: survivalByClassData.map(d => d.survivalRate),
+                type: 'bar',
+                marker: { color: 'blue' }
+            }], {
+                title: 'Survival Rate by Passenger Class',
+                xaxis: { title: 'Passenger Class' },
+                yaxis: { title: 'Survival Rate (%)' }
+            });
+
+            // 2. Age Distribution by Survival Status
+            const survivedAges = ageData.filter((_, i) => survivalData[i] === 1);
+            const nonSurvivedAges = ageData.filter((_, i) => survivalData[i] === 0);
+            Plotly.newPlot('ageDistribution', [
+                { x: survivedAges, type: 'histogram', name: 'Survived', marker: { color: 'green' } },
+                { x: nonSurvivedAges, type: 'histogram', name: 'Did Not Survive', marker: { color: 'red' } }
+            ], {
+                title: 'Age Distribution by Survival Status',
+                xaxis: { title: 'Age' },
+                yaxis: { title: 'Count' },
+                barmode: 'overlay',
+                opacity: 0.7
+            });
+
+            // 3. Survival Rate by Gender
+            const genderGroups = groupBy(survivalByGender, 'gender');
+            const survivalByGenderData = Object.keys(genderGroups).map(g => {
+                const total = genderGroups[g].length;
+                const survived = genderGroups[g].filter(d => d.survived === 1).length;
+                return { gender: g, survivalRate: (survived / total) * 100 };
+            });
+            Plotly.newPlot('survivalByGender', [{
+                x: survivalByGenderData.map(d => d.gender),
+                y: survivalByGenderData.map(d => d.survivalRate),
+                type: 'bar',
+                marker: { color: ['pink', 'blue'] }
+            }], {
+                title: 'Survival Rate by Gender',
+                xaxis: { title: 'Gender' },
+                yaxis: { title: 'Survival Rate (%)' }
+            });
+
+            // 4. Embarkation Point and Survival
+            const embarkGroups = groupBy(survivalByEmbark, 'embark');
+            const survivalByEmbarkData = Object.keys(embarkGroups).map(e => {
+                const total = embarkGroups[e].length;
+                const survived = embarkGroups[e].filter(d => d.survived === 1).length;
+                return { embark: e, survivalRate: (survived / total) * 100 };
+            });
+            Plotly.newPlot('embarkationSurvival', [{
+                x: survivalByEmbarkData.map(d => d.embark),
+                y: survivalByEmbarkData.map(d => d.survivalRate),
+                type: 'bar',
+                marker: { color: 'purple' }
+            }], {
+                title: 'Survival Rate by Embarkation Point',
+                xaxis: { title: 'Embarkation Point' },
+                yaxis: { title: 'Survival Rate (%)' }
+            });
+
+            // 5. Fare Distribution by Survival Status
+            const survivedFares = fareData.filter((_, i) => survivalData[i] === 1);
+            const nonSurvivedFares = fareData.filter((_, i) => survivalData[i] === 0);
+            Plotly.newPlot('fareDistribution', [
+                { y: survivedFares, type: 'box', name: 'Survived', marker: { color: 'green' } },
+                { y: nonSurvivedFares, type: 'box', name: 'Did Not Survive', marker: { color: 'red' } }
+            ], {
+                title: 'Fare Distribution by Survival Status',
+                yaxis: { title: 'Fare' }
+            });
+        }
+
+        function groupBy(array, key) {
+            return array.reduce((result, currentValue) => {
+                (result[currentValue[key]] = result[currentValue[key]] || []).push(currentValue);
+                return result;
+            }, {});
+        }
+    </script>
+</body>
+</html>
